@@ -1,5 +1,13 @@
+use std::collections::BTreeSet;
+
+pub use winit::event;
+
+use glam::Vec2;
 use instant::Instant;
-use winit::window::Window;
+use winit::{
+    event::{DeviceEvent, VirtualKeyCode, WindowEvent},
+    window::Window,
+};
 use yew::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
@@ -8,8 +16,11 @@ pub mod yew_backend;
 pub mod winit_backend;
 
 pub trait Renderer: 'static + Sized {
-    fn init(state: RendererState) -> Self;
-    fn render(&self);
+    fn init(state: &RendererState) -> Self;
+    fn on_window_event(&mut self, state: &RendererState, event: &WindowEvent);
+    fn on_device_event(&mut self, state: &RendererState, event: &DeviceEvent);
+    fn on_resize(&mut self, state: &RendererState);
+    fn render(&mut self, state: &RendererState);
 }
 
 #[derive(PartialEq, Properties)]
@@ -24,12 +35,19 @@ impl Default for Props {
     }
 }
 
+pub struct CursorState {
+    pub position: Vec2,
+    pub dragging_from: Option<Vec2>,
+}
+
 pub struct RendererState {
     pub width: u32,
     pub height: u32,
     pub device: wgpu::Device,
     pub surface: wgpu::Surface,
     pub config: wgpu::SurfaceConfiguration,
+    pub pressed_keys: BTreeSet<VirtualKeyCode>,
+    pub cursor: CursorState,
     pub queue: wgpu::Queue,
     pub start: Instant,
 }
@@ -90,6 +108,11 @@ impl RendererState {
             surface,
             config,
             queue,
+            pressed_keys: BTreeSet::new(),
+            cursor: CursorState {
+                position: Vec2::ZERO,
+                dragging_from: None,
+            },
             start: Instant::now(),
         }
     }
@@ -119,6 +142,8 @@ impl RendererState {
                     &wgpu::DeviceDescriptor {
                         features: wgpu::Features::empty(),
                         limits: wgpu::Limits {
+                            max_uniform_buffer_binding_size: 32000000,
+                            max_storage_buffer_binding_size: 128 << 21,
                             ..wgpu::Limits::downlevel_defaults()
                         },
                         label: None,
@@ -151,6 +176,11 @@ impl RendererState {
             surface,
             config,
             queue,
+            pressed_keys: BTreeSet::new(),
+            cursor: CursorState {
+                position: Vec2::ZERO,
+                dragging_from: None,
+            },
             start: Instant::now(),
         }
     }

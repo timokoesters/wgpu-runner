@@ -1,4 +1,5 @@
 use crate::Props;
+use std::sync::RwLock;
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -14,17 +15,22 @@ const RENDER_LOOP: bool = true;
 fn App<R: crate::Renderer>(props: &Props) -> Html {
     let canvas_ref = use_node_ref();
     let start_render_loop = use_state(|| false);
+    let renderer_state = use_state(|| None);
     let renderer = use_state(|| None);
     use_effect_with_deps(
         {
             // Initialize renderer for canvas
             let renderer = renderer.clone();
+            let renderer_state = renderer_state.clone();
             let start_render_loop = start_render_loop.clone();
             move |canvas_ref: &NodeRef| {
                 if let Some(canvas) = canvas_ref.cast::<HtmlCanvasElement>() {
-                    let real_renderer = R::init(RendererState::init_web(canvas));
-                    real_renderer.render();
-                    renderer.set(Some(real_renderer));
+                    let state = RendererState::init_web(canvas);
+                    let mut real_renderer = R::init(&state);
+                    real_renderer.render(&state);
+
+                    renderer_state.set(Some(RwLock::new(state)));
+                    renderer.set(Some(RwLock::new(real_renderer)));
                     start_render_loop.set(RENDER_LOOP);
                 }
                 || ()
@@ -43,7 +49,12 @@ fn App<R: crate::Renderer>(props: &Props) -> Html {
             let f = Rc::new(RefCell::<Option<Closure<dyn FnMut()>>>::new(None));
             let g = f.clone();
             *g.borrow_mut() = Some(Closure::new(move || {
-                renderer.as_ref().unwrap().render();
+                renderer
+                    .as_ref()
+                    .unwrap()
+                    .write()
+                    .unwrap()
+                    .render(&renderer_state.as_ref().unwrap().read().unwrap());
                 window2
                     .request_animation_frame(f.borrow().as_ref().unwrap().as_ref().unchecked_ref())
                     .unwrap();
