@@ -151,7 +151,7 @@ impl RendererState {
                     &wgpu::DeviceDescriptor {
                         required_features: wgpu::Features::VERTEX_WRITABLE_STORAGE,
                         required_limits: wgpu::Limits {
-                            max_uniform_buffer_binding_size: 32000000,
+                            max_uniform_buffer_binding_size: 65536,
                             max_storage_buffer_binding_size: 128 << 20,
                             max_texture_array_layers: 256 * 3,
                             ..wgpu::Limits::downlevel_defaults()
