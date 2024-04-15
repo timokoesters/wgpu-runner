@@ -1,12 +1,11 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-
-pub use wgpu;
-pub use winit::event;
-pub use winit::keyboard;
-
 use glam::Vec2;
+use gloo::net::http::Request;
 use instant::Instant;
+use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::{Cursor, Read, Seek};
+use std::path::PathBuf;
+use std::sync::Arc;
 use winit::keyboard::Key;
 use winit::keyboard::PhysicalKey;
 use winit::{
@@ -16,13 +15,18 @@ use winit::{
 };
 use yew::prelude::*;
 
+pub use wgpu;
+pub use winit::event;
+pub use winit::keyboard;
+
 #[cfg(target_arch = "wasm32")]
 pub mod yew_backend;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod winit_backend;
 
 pub trait Renderer: 'static + Sized {
-    fn init(state: &RendererState) -> Self;
+    fn init(state: &RendererState) -> impl std::future::Future<Output = Self>;
     fn on_window_event(&mut self, state: &RendererState, event: &WindowEvent);
     fn on_device_event(&mut self, state: &RendererState, event: &DeviceEvent);
     fn on_resize(&mut self, state: &RendererState);
@@ -62,37 +66,38 @@ pub struct RendererState {
 
 impl RendererState {
     #[cfg(target_arch = "wasm32")]
-    fn init_web(canvas: web_sys::HtmlCanvasElement) -> Self {
+    async fn init_web(canvas: web_sys::HtmlCanvasElement) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface_from_canvas(canvas).unwrap();
-        let adapter = pollster::block_on(async {
-            instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::default(),
-                    compatible_surface: Some(&surface),
-                    force_fallback_adapter: false,
-                })
-                .await
-                .unwrap()
-        });
-        let (device, queue) = pollster::block_on(async {
-            adapter
-                .request_device(
-                    &wgpu::DeviceDescriptor {
-                        required_features: wgpu::Features::empty(),
-                        required_limits: wgpu::Limits {
-                            ..wgpu::Limits::downlevel_webgl2_defaults()
-                        },
-                        label: None,
+        let surface: wgpu::Surface<'static> = instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+            .unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits {
+                        max_uniform_buffer_binding_size: 65536,
+                        max_storage_buffer_binding_size: 128 << 21,
+                        max_texture_array_layers: 256 * 3,
+                        ..wgpu::Limits::downlevel_defaults()
                     },
-                    None,
-                )
-                .await
-                .unwrap()
-        });
+                    label: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
@@ -126,43 +131,39 @@ impl RendererState {
         }
     }
 
-    fn init_winit(window: Arc<Window>) -> Self {
+    async fn init_winit(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::default();
 
         let size = window.inner_size();
         let width = size.width;
         let height = size.height;
 
-        let surface = unsafe { instance.create_surface(window) }.unwrap();
+        let surface = instance.create_surface(window).unwrap();
 
-        let adapter = pollster::block_on(async {
-            instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: Some(&surface),
-                    force_fallback_adapter: false,
-                })
-                .await
-                .unwrap()
-        });
-        let (device, queue) = pollster::block_on(async {
-            adapter
-                .request_device(
-                    &wgpu::DeviceDescriptor {
-                        required_features: wgpu::Features::VERTEX_WRITABLE_STORAGE,
-                        required_limits: wgpu::Limits {
-                            max_uniform_buffer_binding_size: 65536,
-                            max_storage_buffer_binding_size: 128 << 20,
-                            max_texture_array_layers: 256 * 3,
-                            ..wgpu::Limits::downlevel_defaults()
-                        },
-                        label: None,
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_features: wgpu::Features::VERTEX_WRITABLE_STORAGE,
+                    required_limits: wgpu::Limits {
+                        max_uniform_buffer_binding_size: 65536,
+                        max_storage_buffer_binding_size: 128 << 21,
+                        max_texture_array_layers: 256 * 3,
+                        ..wgpu::Limits::downlevel_defaults()
                     },
-                    None,
-                )
-                .await
-                .unwrap()
-        });
+                    label: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
@@ -199,8 +200,40 @@ impl RendererState {
 
 pub fn start<R: Renderer>(props: Props) {
     #[cfg(target_arch = "wasm32")]
-    yew_backend::start::<R>(props);
+    {
+        console_log::init_with_level(log::Level::Debug);
+        println!("Starting wasm!");
+        yew_backend::start::<R>(props);
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
-    winit_backend::start::<R>(props);
+    {
+        println!("Starting native!");
+        winit_backend::start::<R>(props);
+    }
+
+    println!("Done!");
+}
+
+pub async fn file_open(rel_path: &str) -> Option<impl Read + Seek> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut full_path = PathBuf::from("dist/assets/");
+        full_path.push(&rel_path);
+        File::open(full_path).ok()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let path = "assets/".to_owned() + rel_path;
+        Request::get(&path)
+            .send()
+            .await
+            .ok()?
+            .binary()
+            .await
+            .ok()
+            .filter(|file| !file.starts_with(b"<!doctype html>"))
+            .map(Cursor::new)
+    }
 }

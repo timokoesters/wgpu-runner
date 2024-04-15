@@ -4,6 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use yew::prelude::*;
+use yew::suspense::use_future_with_deps;
 
 use crate::RendererState;
 
@@ -17,27 +18,32 @@ fn App<R: crate::Renderer>(props: &Props) -> Html {
     let start_render_loop = use_state(|| false);
     let renderer_state = use_state(|| None);
     let renderer = use_state(|| None);
-    use_effect_with_deps(
-        {
-            // Initialize renderer for canvas
-            let renderer = renderer.clone();
-            let renderer_state = renderer_state.clone();
-            let start_render_loop = start_render_loop.clone();
-            move |canvas_ref: &NodeRef| {
+    {
+        let renderer = renderer.clone();
+        let renderer_state = renderer_state.clone();
+        let start_render_loop = start_render_loop.clone();
+        let canvas_ref = canvas_ref.clone();
+        let canvas_ref2 = canvas_ref.clone();
+        use_future_with_deps(
+            |_| async move {
+                log::warn!("A");
                 if let Some(canvas) = canvas_ref.cast::<HtmlCanvasElement>() {
-                    let state = RendererState::init_web(canvas);
-                    let mut real_renderer = R::init(&state);
+                    log::warn!("B");
+                    let state = RendererState::init_web(canvas).await;
+                    log::warn!("C");
+                    let mut real_renderer = R::init(&state).await;
+                    log::warn!("D");
                     real_renderer.render(&state);
+                    log::warn!("E");
 
                     renderer_state.set(Some(RwLock::new(state)));
                     renderer.set(Some(RwLock::new(real_renderer)));
                     start_render_loop.set(RENDER_LOOP);
                 }
-                || ()
-            }
-        },
-        canvas_ref.clone(),
-    );
+            },
+            canvas_ref2.clone(),
+        );
+    }
 
     use_effect_with_deps(
         move |start_render_loop| {

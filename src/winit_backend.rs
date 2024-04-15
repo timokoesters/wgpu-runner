@@ -35,8 +35,11 @@ where
         window.set_cursor_visible(false);
     }
 
-    let mut state = RendererState::init_winit(window.clone());
-    let mut app = R::init(&state);
+    let (mut state, mut app) = pollster::block_on(async {
+        let state = RendererState::init_winit(window.clone()).await;
+        let app = R::init(&state).await;
+        (state, app)
+    });
 
     app.on_resize(&state);
 
