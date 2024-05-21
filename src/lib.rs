@@ -1,16 +1,13 @@
 use glam::Vec2;
-use gloo::net::http::Request;
 use instant::Instant;
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::{Cursor, Read, Seek};
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 use std::sync::Arc;
-use winit::keyboard::Key;
 use winit::keyboard::PhysicalKey;
 use winit::{
     event::{DeviceEvent, WindowEvent},
-    keyboard::KeyCode,
     window::Window,
 };
 use yew::prelude::*;
@@ -218,7 +215,7 @@ pub fn start<R: Renderer>(props: Props) {
 pub async fn file_open(rel_path: &str) -> Option<impl Read + Seek> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let mut full_path = PathBuf::from("dist/assets/");
+        let mut full_path = PathBuf::from("assets/");
         full_path.push(&rel_path);
         File::open(full_path).ok()
     }

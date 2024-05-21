@@ -4,16 +4,10 @@ use crate::Props;
 use crate::Renderer;
 use crate::RendererState;
 
-use glam::UVec2;
 use glam::Vec2;
-use winit::dpi::PhysicalSize;
 use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
-use winit::{
-    event::*,
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
+use winit::{event::*, event_loop::EventLoop, window::WindowBuilder};
 
 pub fn start<R>(props: Props)
 where
@@ -29,9 +23,7 @@ where
             .unwrap(),
     );
     if props.capture_cursor {
-        window
-            .set_cursor_grab(winit::window::CursorGrabMode::Confined)
-            .unwrap();
+        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
         window.set_cursor_visible(false);
     }
 
@@ -45,7 +37,7 @@ where
 
     event_loop
         .run(move |event, elwt| match event {
-            Event::WindowEvent { event, window_id } => {
+            Event::WindowEvent { event, .. } => {
                 if let WindowEvent::KeyboardInput { event, .. } = &event {
                     if event.state.is_pressed() {
                         state.pressed_keys.insert(event.physical_key);
